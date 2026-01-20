@@ -7,7 +7,12 @@ export async function POST(req) {
 
   const event = await req.json();
 
-  // لاحقًا: هنا نحدّث الطلب أنه مدفوع
+  // هنا مستقبلاً:
+  // - تقرأ orderNumber
+  // - تتحقق من status = paid / success
+  // - تحدث الطلب في قاعدة البيانات
+
+  console.log("Paylink Webhook:", event);
 
   return new Response("OK", { status: 200 });
 }
