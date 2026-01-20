@@ -4,10 +4,14 @@ export async function POST(req) {
     const { orderId, amount, customerName, customerEmail, customerMobile } = body;
 
     if (!orderId || !amount) {
-      return new Response(JSON.stringify({ error: "Missing orderId or amount" }), { status: 400 });
+      return new Response(
+        JSON.stringify({ error: "Missing orderId or amount" }),
+        { status: 400 }
+      );
     }
 
-    const res = await fetch("https://api.paylink.sa/your-create-endpoint", {
+    // ⚠️ مهم: هذا لازم يتغير لعنوان Paylink الصحيح لإنشاء الدفع
+    const paylinkResponse = await fetch("https://api.paylink.sa/YOUR_CREATE_ENDPOINT", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -16,23 +20,34 @@ export async function POST(req) {
       },
       body: JSON.stringify({
         orderNumber: orderId,
-        amount,
-        customerName,
-        customerEmail,
-        customerMobile,
+        amount: amount,
+        customerName: customerName || "Customer",
+        customerEmail: customerEmail || "test@test.com",
+        customerMobile: customerMobile || "966500000000",
         successUrl: `https://seeraty.online/payment-success?orderId=${orderId}`,
         cancelUrl: `https://seeraty.online/payment-failed?orderId=${orderId}`
       })
     });
 
-    const data = await res.json();
+    const data = await paylinkResponse.json();
 
-    if (!res.ok) {
-      return new Response(JSON.stringify({ error: "Paylink error", details: data }), { status: 400 });
+    if (!paylinkResponse.ok) {
+      return new Response(
+        JSON.stringify({ error: "Paylink error", details: data }),
+        { status: 400 }
+      );
     }
 
-    return new Response(JSON.stringify({ paymentUrl: data.paymentUrl }), { status: 200 });
+    // بعض حسابات Paylink ترجع: paymentUrl أو url
+    const paymentUrl = data.paymentUrl || data.url;
+
+    return new Response(JSON.stringify({ paymentUrl }), { status: 200 });
+
   } catch (e) {
-    return new Response(JSON.stringify({ error: "Server error" }), { status: 500 });
+    return new Response(
+      JSON.stringify({ error: "Server error", message: e.message }),
+      { status: 500 }
+    );
   }
 }
+
