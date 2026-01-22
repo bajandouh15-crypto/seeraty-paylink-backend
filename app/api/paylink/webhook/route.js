@@ -1,54 +1,73 @@
 export async function POST(req) {
-  const secret = req.headers.get("x-paylink-secret");
+  try {
+    const secret = req.headers.get("x-paylink-secret");
+    if (!secret || secret !== process.env.PAYLINK_WEBHOOK_SECRET) {
+      return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
-  // 1) Verify webhook secret
-  if (!secret || secret !== process.env.PAYLINK_WEBHOOK_SECRET) {
-    return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
+    const event = await req.json();
+    console.log("Paylink Webhook:", event);
+
+    const { merchantOrderNumber, orderStatus, transactionNo } = event;
+
+    if (orderStatus !== "Paid") {
+      return new Response(JSON.stringify({ ok: true, ignored: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const API_KEY = process.env.BASE44_API_KEY;
+    const CV_ENDPOINT = process.env.BASE44_CV_ENDPOINT;
+
+    // 🔍 ابحث عن CV بواسطة orderId
+    const searchUrl = `${CV_ENDPOINT}?orderId=${encodeURIComponent(merchantOrderNumber)}`;
+
+    const searchRes = await fetch(searchUrl, {
+      headers: {
+        api_key: API_KEY,
+        "Content-Type": "application/json",
+      },
     });
-  }
 
-  // 2) Read payload
-  const event = await req.json();
-  console.log("Paylink Webhook:", event);
+    const list = await searchRes.json();
+    const cv = Array.isArray(list) ? list[0] : list?.data?.[0];
 
-  // 3) Only handle paid
-  if (event.orderStatus !== "Paid") {
-    return new Response(JSON.stringify({ ok: true, ignored: true }), {
+    if (!cv?.id) {
+      return new Response(JSON.stringify({ ok: false, error: "CV not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // ✅ تحديث حالة الدفع
+    const updateUrl = `${CV_ENDPOINT}/${cv.id}`;
+
+    await fetch(updateUrl, {
+      method: "PUT",
+      headers: {
+        api_key: API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        paymentStatus: "paid",
+        transactionNo: transactionNo || "",
+      }),
+    });
+
+    return new Response(JSON.stringify({ ok: true, updated: true }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
-  }
 
-  // 4) The CV orderId MUST be here
-  const orderId = event.merchantOrderNumber; // لازم يكون CV_xxx
-  const transactionNo = event.transactionNo;
-
-  if (!orderId) {
-    return new Response(JSON.stringify({ ok: false, error: "Missing merchantOrderNumber" }), {
-      status: 400,
+  } catch (e) {
+    console.error("Webhook Error:", e);
+    return new Response(JSON.stringify({ ok: false, error: "Server error" }), {
+      status: 500,
       headers: { "Content-Type": "application/json" },
     });
   }
-
-  // 5) Update Base44 entity
-  const base44Res = await fetch(`https://app.base44.com/api/entities/CV/${orderId}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      "api_key": process.env.BASE44_API_KEY,
-    },
-    body: JSON.stringify({
-      paymentStatus: "paid",
-      transactionNo: transactionNo || null,
-    }),
-  });
-
-  const base44Data = await base44Res.json();
-
-  return new Response(JSON.stringify({ ok: true, updated: base44Data }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
 }
